@@ -43,7 +43,7 @@ final class LsTool: AgentTool {
         let showAll = args["all"] as? Bool ?? false
         logger.info("Listing directory: \(pathArg, privacy: .public), showAll: \(showAll)")
 
-        let resolvedPath = FileSystemToolHelpers.resolvePath(pathArg, workingDirectory: workingDirectory)
+        let resolvedPath = try FileSystemToolHelpers.resolvePath(pathArg, workingDirectory: workingDirectory)
 
         let standardized = (resolvedPath as NSString).standardizingPath
         let fm = FileManager.default

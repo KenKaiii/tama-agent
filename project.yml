@@ -14,10 +14,10 @@ settings:
 packages:
   RiveRuntime:
     url: https://github.com/rive-app/rive-ios
-    from: "6.18.0"
+    from: "6.20.0"
   Highlightr:
     url: https://github.com/raspu/Highlightr
-    from: "2.2.1"
+    from: "2.3.0"
   kokoro-ios:
     url: https://github.com/mlalma/kokoro-ios.git
     from: "1.0.11"

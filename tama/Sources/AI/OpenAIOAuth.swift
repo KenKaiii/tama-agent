@@ -112,8 +112,15 @@ final class OpenAIOAuth {
     private func listenForCallback(authorizeURL: URL, expectedState: String) async throws -> String {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
             let resumeOnce = ResumeGuard()
-            // swiftlint:disable:next force_try
-            let listener = try! NWListener(using: .tcp, on: 1455)
+            let listener: NWListener
+            do {
+                listener = try NWListener(using: .tcp, on: 1455)
+            } catch {
+                continuation.resume(
+                    throwing: OpenAIOAuthError.serverFailed("Failed to bind port 1455: \(error.localizedDescription)")
+                )
+                return
+            }
 
             listener.newConnectionHandler = { [weak listener] connection in
                 connection.start(queue: .main)

@@ -7,6 +7,60 @@ private let logger = Logger(
     category: "provider-store"
 )
 
+// MARK: - CredentialsRefresher
+
+/// Abstraction over the per-provider OAuth refresh call.
+/// Injected into `ProviderStore` so tests can mock the network hop.
+protocol CredentialsRefresher: Sendable {
+    func refresh(
+        provider: AIProvider,
+        refreshToken: String,
+        accountId: String?
+    ) async throws -> ProviderCredential
+}
+
+/// Production implementation — delegates to the real OAuth singletons.
+struct LiveCredentialsRefresher: CredentialsRefresher {
+    func refresh(
+        provider: AIProvider,
+        refreshToken: String,
+        accountId: String?
+    ) async throws -> ProviderCredential {
+        switch provider {
+        case .openai:
+            let result = try await OpenAIOAuth.shared.refresh(refreshToken: refreshToken)
+            return ProviderCredential.oauth(
+                accessToken: result.accessToken,
+                refreshToken: result.refreshToken,
+                expiresAt: result.expiresAt,
+                accountId: result.accountId
+            )
+        case .gemini:
+            let projectId = accountId ?? ""
+            let result = try await GeminiOAuth.shared.refresh(
+                refreshToken: refreshToken,
+                projectId: projectId
+            )
+            return ProviderCredential.oauth(
+                accessToken: result.accessToken,
+                refreshToken: result.refreshToken,
+                expiresAt: result.expiresAt,
+                accountId: result.projectId
+            )
+        case .anthropic:
+            let result = try await AnthropicOAuth.shared.refresh(refreshToken: refreshToken)
+            return ProviderCredential.oauth(
+                accessToken: result.accessToken,
+                refreshToken: result.refreshToken,
+                expiresAt: result.expiresAt,
+                accountId: ""
+            )
+        default:
+            throw ProviderStore.ProviderStoreError.noCredentials(provider)
+        }
+    }
+}
+
 /// Credential for a single provider — API key or OAuth tokens.
 struct ProviderCredential: Codable {
     let accessToken: String
@@ -60,8 +114,26 @@ final class ProviderStore {
     private var data: StoreData
     private static let fileName = "provider-store.enc"
 
-    private init() {
+    /// In-flight refresh tasks keyed by provider ID.
+    /// Concurrent callers that find an expired token await the same task
+    /// instead of each firing an independent OAuth refresh.
+    private var refreshTasks: [String: Task<String, Error>] = [:]
+
+    /// OAuth refresh implementation — swapped out in tests via `init(refresher:)`.
+    private let refresher: any CredentialsRefresher
+
+    private init(refresher: any CredentialsRefresher = LiveCredentialsRefresher()) {
+        self.refresher = refresher
         data = Self.loadFromDisk() ?? .empty
+    }
+
+    /// Creates a store backed by an in-memory credential dictionary and a
+    /// custom refresher.  Used by unit tests only.
+    static func makeForTesting(refresher: any CredentialsRefresher) -> ProviderStore {
+        let store = ProviderStore(refresher: refresher)
+        // Bypass disk I/O entirely — start with empty in-memory state.
+        store.data = .empty
+        return store
     }
 
     // MARK: - Credentials
@@ -93,55 +165,49 @@ final class ProviderStore {
 
     /// Returns the access token for the given provider.
     /// For OAuth providers, auto-refreshes expired tokens.
+    /// Concurrent calls that race on the same expired token are coalesced:
+    /// the first caller starts the refresh task and subsequent callers
+    /// await that same task, ensuring each single-use refresh token is
+    /// consumed exactly once.
     func validAccessToken(for provider: AIProvider) async throws -> String {
         guard let cred = data.credentials[provider.rawValue] else {
             throw ProviderStoreError.noCredentials(provider)
         }
 
         // Auto-refresh expired OAuth tokens
-        if cred.isOAuth, cred.isExpired, let refreshToken = cred.refreshToken {
-            logger.info("Token expired for \(provider.displayName), refreshing…")
+        guard cred.isOAuth, cred.isExpired, let refreshToken = cred.refreshToken else {
+            return cred.accessToken
+        }
 
-            let newCred: ProviderCredential
-            switch provider {
-            case .openai:
-                let refreshed = try await OpenAIOAuth.shared.refresh(refreshToken: refreshToken)
-                newCred = ProviderCredential.oauth(
-                    accessToken: refreshed.accessToken,
-                    refreshToken: refreshed.refreshToken,
-                    expiresAt: refreshed.expiresAt,
-                    accountId: refreshed.accountId
-                )
-            case .gemini:
-                let projectId = cred.accountId ?? ""
-                let refreshed = try await GeminiOAuth.shared.refresh(
-                    refreshToken: refreshToken,
-                    projectId: projectId
-                )
-                newCred = ProviderCredential.oauth(
-                    accessToken: refreshed.accessToken,
-                    refreshToken: refreshed.refreshToken,
-                    expiresAt: refreshed.expiresAt,
-                    accountId: refreshed.projectId
-                )
-            case .anthropic:
-                let refreshed = try await AnthropicOAuth.shared.refresh(refreshToken: refreshToken)
-                newCred = ProviderCredential.oauth(
-                    accessToken: refreshed.accessToken,
-                    refreshToken: refreshed.refreshToken,
-                    expiresAt: refreshed.expiresAt,
-                    accountId: ""
-                )
-            default:
-                throw ProviderStoreError.noCredentials(provider)
+        // Coalesce concurrent refresh attempts for the same provider.
+        if let existing = refreshTasks[provider.rawValue] {
+            logger.debug("Coalescing token refresh for \(provider.displayName) onto existing task")
+            return try await existing.value
+        }
+
+        logger.info("Token expired for \(provider.displayName), refreshing…")
+
+        let accountId = cred.accountId
+        let credRefresher = refresher
+        let task = Task<String, Error> { [weak self] in
+            guard let self else { throw ProviderStoreError.noCredentials(provider) }
+
+            let newCred = try await credRefresher.refresh(
+                provider: provider,
+                refreshToken: refreshToken,
+                accountId: accountId
+            )
+
+            await MainActor.run {
+                self.data.credentials[provider.rawValue] = newCred
+                self.save()
+                self.refreshTasks.removeValue(forKey: provider.rawValue)
             }
-
-            data.credentials[provider.rawValue] = newCred
-            save()
             return newCred.accessToken
         }
 
-        return cred.accessToken
+        refreshTasks[provider.rawValue] = task
+        return try await task.value
     }
 
     // MARK: - Model Selection

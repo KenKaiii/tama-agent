@@ -87,7 +87,7 @@ final class GrepTool: AgentTool {
         }
 
         let pathArg = args["path"] as? String ?? "."
-        let resolvedPath = FileSystemToolHelpers.resolvePath(pathArg, workingDirectory: workingDirectory)
+        let resolvedPath = try FileSystemToolHelpers.resolvePath(pathArg, workingDirectory: workingDirectory)
 
         let standardized = (resolvedPath as NSString).standardizingPath
         let fm = FileManager.default

@@ -2,12 +2,64 @@ import Foundation
 
 /// Shared helpers for file-system-based tools (path resolution, binary detection, directory filtering).
 enum FileSystemToolHelpers {
-    /// Resolves a possibly-relative path against the given working directory.
-    static func resolvePath(_ path: String, workingDirectory: String) -> String {
-        if path.hasPrefix("/") {
-            return path
+    // MARK: - Errors
+
+    enum ConfinementError: LocalizedError {
+        case outsideWorkingDirectory(resolved: String, workingDirectory: String)
+
+        var errorDescription: String? {
+            switch self {
+            case let .outsideWorkingDirectory(resolved, wd):
+                "Path '\(resolved)' is outside the working directory '\(wd)'. "
+                    + "Access to paths outside the working directory is not permitted."
+            }
         }
-        return (workingDirectory as NSString).appendingPathComponent(path)
+    }
+
+    // MARK: - Path resolution
+
+    /// Resolves a possibly-relative or `~`-prefixed path against the given working directory,
+    /// then verifies the canonical result is confined to that directory.
+    /// Throws `ConfinementError.outsideWorkingDirectory` if the resolved path escapes.
+    static func resolvePath(_ path: String, workingDirectory: String) throws -> String {
+        // Expand `~` or `~/…` — these must resolve inside the working directory to be allowed.
+        let expanded: String = if path == "~" || path.hasPrefix("~/") || path.hasPrefix("~\\") {
+            (path as NSString).expandingTildeInPath
+        } else if path.hasPrefix("/") {
+            path
+        } else {
+            (workingDirectory as NSString).appendingPathComponent(path)
+        }
+
+        // Canonicalize both paths to resolve any `..`, `.`, or symlink components.
+        // Use `standardizingPath` (pure lexical) first so that non-existent paths
+        // (e.g. a new file about to be written) still get `..` collapsed correctly,
+        // then overlay with `resolvingSymlinksInPath` for paths that do exist.
+        let fm = FileManager.default
+        let standardized = (expanded as NSString).standardizingPath
+        let canonicalExpanded: String = if fm.fileExists(atPath: standardized) {
+            (standardized as NSString).resolvingSymlinksInPath
+        } else {
+            standardized
+        }
+
+        let standardizedWD = (workingDirectory as NSString).standardizingPath
+        let canonicalWD: String = if fm.fileExists(atPath: standardizedWD) {
+            (standardizedWD as NSString).resolvingSymlinksInPath
+        } else {
+            standardizedWD
+        }
+
+        // The resolved path must be exactly the working directory or a descendant of it.
+        let confinedPrefix = canonicalWD.hasSuffix("/") ? canonicalWD : canonicalWD + "/"
+        guard canonicalExpanded == canonicalWD || canonicalExpanded.hasPrefix(confinedPrefix) else {
+            throw ConfinementError.outsideWorkingDirectory(
+                resolved: canonicalExpanded,
+                workingDirectory: canonicalWD
+            )
+        }
+
+        return canonicalExpanded
     }
 
     /// File extensions treated as binary (skipped by read/grep).
@@ -76,10 +128,10 @@ final class ToolRegistry: Sendable {
         self.tools = tools
     }
 
-    /// Creates the default registry with all built-in tools.
-    static func defaultRegistry(workingDirectory: String? = nil) -> ToolRegistry {
-        let cwd = workingDirectory ?? FileManager.default.currentDirectoryPath
-        return ToolRegistry(tools: [
+    /// Tools shared between `defaultRegistry` and `callRegistry`. The two registries
+    /// differ only by their terminator tool (`DismissTool` vs `EndCallTool`).
+    private static func sharedTools(workingDirectory cwd: String) -> [AgentTool] {
+        [
             BashTool(workingDirectory: cwd),
             ReadTool(workingDirectory: cwd),
             WriteTool(workingDirectory: cwd),
@@ -94,36 +146,22 @@ final class ToolRegistry: Sendable {
             ListSchedulesTool(),
             DeleteScheduleTool(),
             TaskTool(),
-            DismissTool(),
             BrowserTool(),
             ScreenshotTool(),
             SkillTool(),
-        ])
+        ]
+    }
+
+    /// Creates the default registry with all built-in tools (terminator: `dismiss`).
+    static func defaultRegistry(workingDirectory: String? = nil) -> ToolRegistry {
+        let cwd = workingDirectory ?? FileManager.default.currentDirectoryPath
+        return ToolRegistry(tools: sharedTools(workingDirectory: cwd) + [DismissTool()])
     }
 
     /// Creates a registry for voice calls — same as default but swaps `dismiss` for `end_call`.
     static func callRegistry(workingDirectory: String? = nil) -> ToolRegistry {
         let cwd = workingDirectory ?? FileManager.default.currentDirectoryPath
-        return ToolRegistry(tools: [
-            BashTool(workingDirectory: cwd),
-            ReadTool(workingDirectory: cwd),
-            WriteTool(workingDirectory: cwd),
-            EditTool(workingDirectory: cwd),
-            LsTool(workingDirectory: cwd),
-            FindTool(workingDirectory: cwd),
-            GrepTool(workingDirectory: cwd),
-            WebFetchTool(),
-            WebSearchTool(),
-            CreateReminderTool(),
-            CreateRoutineTool(),
-            ListSchedulesTool(),
-            DeleteScheduleTool(),
-            TaskTool(),
-            EndCallTool(),
-            BrowserTool(),
-            ScreenshotTool(),
-            SkillTool(),
-        ])
+        return ToolRegistry(tools: sharedTools(workingDirectory: cwd) + [EndCallTool()])
     }
 
     /// Look up a tool by name.

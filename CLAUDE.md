@@ -40,6 +40,7 @@ Tama/Sources/
 │       ├── DismissTool.swift      # Dismiss panel
 │       ├── EndCallTool.swift      # End voice call
 │       ├── SkillTool.swift        # Skill management
+│       ├── ScreenshotTool.swift   # Full-screen capture for vision-capable models
 │       ├── TaskTool.swift         # Task management
 │       └── Browser/               # Browser automation via CDP
 │           ├── BrowserManager.swift, BrowserTool.swift

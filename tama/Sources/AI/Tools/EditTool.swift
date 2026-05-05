@@ -70,7 +70,7 @@ final class EditTool: AgentTool {
             throw ToolError.missingParameter("new_text")
         }
 
-        let absolutePath = FileSystemToolHelpers.resolvePath(filePath, workingDirectory: workingDirectory)
+        let absolutePath = try FileSystemToolHelpers.resolvePath(filePath, workingDirectory: workingDirectory)
         logger
             .info(
                 "Editing file: \(absolutePath, privacy: .public), oldTextLength: \(rawOldText.count), newTextLength: \(rawNewText.count)"

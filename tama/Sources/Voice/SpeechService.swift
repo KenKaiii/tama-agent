@@ -216,9 +216,7 @@ final class SpeechService {
         // No sentence boundary yet — try clause boundary if we have enough text
         guard cleaned.count >= Self.eagerFlushChars else { return }
 
-        // swiftlint:disable:next force_try
-        let clausePattern = try! NSRegularExpression(pattern: "[,;:—–]\\s+", options: [])
-        let clauseMatches = clausePattern.matches(in: cleaned, options: [], range: range)
+        let clauseMatches = Self.clausePattern.matches(in: cleaned, options: [], range: range)
 
         if let lastClause = clauseMatches.last {
             let splitIndex = cleaned.index(
@@ -394,8 +392,17 @@ final class SpeechService {
     /// by whitespace. Used for mid-sentence draining once the buffer gets big
     /// enough to avoid dead air waiting for sentence-ending punctuation.
     // swiftlint:disable:next force_try
-    private static let clausePattern = try! NSRegularExpression(
+    static let clausePattern = try! NSRegularExpression(
         pattern: "[,;:—–]\\s+",
+        options: []
+    )
+
+    /// Clause-boundary pattern used by `splitAtClauseBoundaries` when carving up
+    /// over-long sentences for Kokoro. Same as `clausePattern` but excludes the
+    /// colon — see the note on `splitAtClauseBoundaries` for rationale.
+    // swiftlint:disable:next force_try
+    static let clauseSplitPattern = try! NSRegularExpression(
+        pattern: "[,;—–]\\s+",
         options: []
     )
 
@@ -486,11 +493,16 @@ final class SpeechService {
     }
 
     /// Splits a long sentence at comma, semicolon, or dash boundaries.
-    private func splitAtClauseBoundaries(_ text: String) -> [String] {
-        // swiftlint:disable:next force_try
-        let pattern = try! NSRegularExpression(pattern: "[,;—–]\\s+", options: [])
+    /// Note: deliberately omits the colon (which is included in `clausePattern`)
+    /// because mid-sentence chunking at colons tends to leave awkward stranded
+    /// fragments like "For example:" with nothing following.
+    func splitAtClauseBoundaries(_ text: String) -> [String] {
         let nsText = text as NSString
-        let matches = pattern.matches(in: text, options: [], range: NSRange(location: 0, length: nsText.length))
+        let matches = Self.clauseSplitPattern.matches(
+            in: text,
+            options: [],
+            range: NSRange(location: 0, length: nsText.length)
+        )
 
         guard !matches.isEmpty else {
             // No clause boundaries — hard split at maxChunkChars

@@ -1,24 +1,59 @@
+import Foundation
 @testable import Tama
 import Testing
 
 @Suite("FileSystemToolHelpers")
 struct FileSystemToolHelpersTests {
-    @Test("resolvePath returns absolute path unchanged")
-    func resolveAbsolutePath() {
-        let result = FileSystemToolHelpers.resolvePath("/usr/bin/swift", workingDirectory: "/home/user")
-        #expect(result == "/usr/bin/swift")
+    // A real temp directory so symlink resolution works on macOS (/var → /private/var).
+    let tempDir: String
+
+    init() throws {
+        let base = NSTemporaryDirectory() + "FSHelpersTests-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: base, withIntermediateDirectories: true)
+        tempDir = (base as NSString).resolvingSymlinksInPath
+    }
+
+    private func cleanup() {
+        try? FileManager.default.removeItem(atPath: tempDir)
     }
 
     @Test("resolvePath joins relative path with working directory")
-    func resolveRelativePath() {
-        let result = FileSystemToolHelpers.resolvePath("src/main.swift", workingDirectory: "/home/user/project")
-        #expect(result == "/home/user/project/src/main.swift")
+    func resolveRelativePath() throws {
+        let result = try FileSystemToolHelpers.resolvePath("src/main.swift", workingDirectory: tempDir)
+        #expect(result == tempDir + "/src/main.swift")
+        cleanup()
     }
 
-    @Test("resolvePath handles trailing slash on working directory")
-    func resolvePathTrailingSlash() {
-        let result = FileSystemToolHelpers.resolvePath("file.txt", workingDirectory: "/home/user")
-        #expect(result == "/home/user/file.txt")
+    @Test("resolvePath handles nested relative path")
+    func resolveNestedRelativePath() throws {
+        let result = try FileSystemToolHelpers.resolvePath("a/b/file.txt", workingDirectory: tempDir)
+        #expect(result.hasPrefix(tempDir))
+        #expect(result.hasSuffix("a/b/file.txt"))
+        cleanup()
+    }
+
+    @Test("resolvePath with absolute path inside working directory is allowed")
+    func resolveAbsoluteInsideWorkingDir() throws {
+        let insidePath = tempDir + "/subdir/file.swift"
+        let result = try FileSystemToolHelpers.resolvePath(insidePath, workingDirectory: tempDir)
+        #expect(result.hasPrefix(tempDir))
+        cleanup()
+    }
+
+    @Test("resolvePath rejects absolute path outside working directory")
+    func resolveAbsoluteOutsideWorkingDir() throws {
+        #expect(throws: (any Error).self) {
+            try FileSystemToolHelpers.resolvePath("/usr/bin/swift", workingDirectory: tempDir)
+        }
+        cleanup()
+    }
+
+    @Test("resolvePath rejects dot-dot traversal")
+    func resolveDotDotRejected() throws {
+        #expect(throws: (any Error).self) {
+            try FileSystemToolHelpers.resolvePath("../../etc/passwd", workingDirectory: tempDir)
+        }
+        cleanup()
     }
 
     @Test("binaryExtensions contains key types")

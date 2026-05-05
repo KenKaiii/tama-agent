@@ -68,7 +68,7 @@ final class ReadTool: AgentTool {
             throw ToolError.invalidArguments("Missing required argument: file_path")
         }
 
-        let resolvedPath = FileSystemToolHelpers.resolvePath(filePath, workingDirectory: workingDirectory)
+        let resolvedPath = try FileSystemToolHelpers.resolvePath(filePath, workingDirectory: workingDirectory)
         let offset = args["offset"] as? Int
         let limit = args["limit"] as? Int
         logger.info("Reading file: \(resolvedPath, privacy: .public), offset: \(offset ?? 1), limit: \(limit ?? -1)")

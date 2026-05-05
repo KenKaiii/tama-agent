@@ -229,14 +229,66 @@ final class WebFetchTool: AgentTool {
             throw WebFetchError.blockedHost(host)
         }
 
-        if Self.isPrivateIPv4(host) || Self.isPrivateIPv6(host) {
+        // Normalize the host via getaddrinfo so that non-standard representations
+        // (decimal integer, hex, octal, IPv6-mapped) are canonicalized before the
+        // pattern checks run.  This defeats forms like http://2130706433,
+        // http://0x7f000001, http://017700000001, and http://[::ffff:7f00:1].
+        let checkHost = Self.normalizeHost(host) ?? host
+
+        if Self.isPrivateIPv4(checkHost) || Self.isPrivateIPv6(checkHost) {
             throw WebFetchError.blockedHost(host)
         }
 
-        // Resolve DNS to catch hostnames that point to private IPs (DNS rebinding defense).
+        // Also resolve DNS to catch hostnames that point to private IPs
+        // (DNS rebinding defense).  normalizeHost already resolves numeric forms,
+        // so this path handles real hostnames.
         if Self.resolvesToPrivateIP(host) {
             throw WebFetchError.blockedHost(host)
         }
+    }
+
+    /// Normalizes a host string to its canonical IP representation using getaddrinfo.
+    /// Returns `nil` if the host cannot be resolved (e.g. a real DNS hostname — let
+    /// `resolvesToPrivateIP` handle those).
+    /// Handles: dotted-decimal, decimal integer, hex (0x…), octal (0…), IPv6 including
+    /// IPv4-mapped forms like `::ffff:7f00:1`.
+    private static func normalizeHost(_ host: String) -> String? {
+        // Strip brackets from bare IPv6 addresses (URL.host already strips them,
+        // but guard against direct calls with bracketed strings).
+        let stripped = host.hasPrefix("[") && host.hasSuffix("]")
+            ? String(host.dropFirst().dropLast())
+            : host
+
+        var hints = addrinfo()
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_STREAM
+        // AI_NUMERICHOST tells getaddrinfo to interpret the string as a numeric address
+        // and NOT perform DNS lookup — this is exactly what we want for normalizing
+        // integer/hex/octal literals and IPv6-mapped forms without touching the network.
+        hints.ai_flags = AI_NUMERICHOST
+
+        var result: UnsafeMutablePointer<addrinfo>?
+        let status = getaddrinfo(stripped, nil, &hints, &result)
+        guard status == 0, let head = result else {
+            // Not a numeric address literal — leave as-is for DNS resolution later.
+            return nil
+        }
+        defer { freeaddrinfo(head) }
+
+        var buf = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+        if head.pointee.ai_family == AF_INET {
+            var sa = head.pointee.ai_addr
+                .withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee }
+            inet_ntop(AF_INET, &sa.sin_addr, &buf, socklen_t(INET6_ADDRSTRLEN))
+        } else if head.pointee.ai_family == AF_INET6 {
+            var sa = head.pointee.ai_addr
+                .withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee }
+            inet_ntop(AF_INET6, &sa.sin6_addr, &buf, socklen_t(INET6_ADDRSTRLEN))
+        } else {
+            return nil
+        }
+        let canonical = String(cString: buf)
+        return canonical.isEmpty ? nil : canonical
     }
 
     /// Resolves a hostname via DNS and returns true if ANY resolved IP is private/reserved.
@@ -391,7 +443,9 @@ final class WebFetchTool: AgentTool {
         let blockedHosts: Set<String> = ["localhost", "0.0.0.0"]
         if blockedHosts.contains(host) { return false }
 
-        if isPrivateIPv4(host) || isPrivateIPv6(host) { return false }
+        // Normalize non-standard numeric forms before pattern checks.
+        let checkHost = normalizeHost(host) ?? host
+        if isPrivateIPv4(checkHost) || isPrivateIPv6(checkHost) { return false }
 
         // DNS resolution check for rebinding defense.
         if resolvesToPrivateIP(host) { return false }

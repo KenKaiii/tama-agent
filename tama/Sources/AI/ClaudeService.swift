@@ -1,6 +1,35 @@
 import Foundation
 import os
 
+// MARK: - Anthropic Constants
+
+/// Versioned constants for the Anthropic Claude Code OAuth path.
+///
+/// **These need periodic review** against Anthropic's changelog:
+/// - `anthropic-beta` flags expire when the feature graduates to GA or is renamed.
+/// - `cliVersion` should track the upstream `claude-cli` release that the OAuth
+///   app was registered against — an outdated value may trigger auth rejections.
+///
+/// Docs: https://docs.anthropic.com/en/api/versioning
+///       https://docs.anthropic.com/en/api/beta-features
+enum AnthropicConstants {
+    /// User-Agent sent with Claude Code OAuth requests.
+    /// Review when Anthropic releases a new CLI version.
+    static let cliUserAgent = "claude-cli/2.1.75"
+
+    /// Beta feature flags joined into the `anthropic-beta` header.
+    /// Remove or replace flags once they graduate to stable or are superseded.
+    static let betaFlags: [String] = [
+        "claude-code-20250219", // Claude Code tool-use capability
+        "oauth-2025-04-20", // OAuth token auth scheme
+        "fine-grained-tool-streaming-2025-05-14", // Per-tool streaming events
+        "interleaved-thinking-2025-05-14", // Interleaved extended thinking
+    ]
+
+    /// Comma-separated `anthropic-beta` header value derived from `betaFlags`.
+    static let betaHeader = betaFlags.joined(separator: ",")
+}
+
 /// Singleton service for calling AI APIs. Supports Anthropic (Claude) and
 /// OpenAI-compatible providers via ProviderStore.
 @MainActor
@@ -424,15 +453,9 @@ final class ClaudeService {
         if isAnthropicOAuth {
             // Claude Code OAuth: bearer auth + beta headers + CLI identity.
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            request.setValue("claude-cli/2.1.75", forHTTPHeaderField: "User-Agent")
+            request.setValue(AnthropicConstants.cliUserAgent, forHTTPHeaderField: "User-Agent")
             request.setValue("cli", forHTTPHeaderField: "x-app")
-            let betas = [
-                "claude-code-20250219",
-                "oauth-2025-04-20",
-                "fine-grained-tool-streaming-2025-05-14",
-                "interleaved-thinking-2025-05-14",
-            ].joined(separator: ",")
-            request.setValue(betas, forHTTPHeaderField: "anthropic-beta")
+            request.setValue(AnthropicConstants.betaHeader, forHTTPHeaderField: "anthropic-beta")
         } else {
             // MiniMax and other Anthropic-compatible providers: API-key auth.
             request.setValue(token, forHTTPHeaderField: "x-api-key")

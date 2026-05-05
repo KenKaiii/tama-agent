@@ -45,7 +45,7 @@ final class FindTool: AgentTool {
 
         let pathArg = args["path"] as? String ?? "."
         logger.info("Finding files: pattern=\(pattern, privacy: .public), path=\(pathArg, privacy: .public)")
-        let searchPath = FileSystemToolHelpers.resolvePath(pathArg, workingDirectory: workingDirectory)
+        let searchPath = try FileSystemToolHelpers.resolvePath(pathArg, workingDirectory: workingDirectory)
 
         let standardized = (searchPath as NSString).standardizingPath
         return try ToolOutput(text: findFiles(pattern: pattern, in: standardized))

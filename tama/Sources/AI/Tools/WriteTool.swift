@@ -45,7 +45,7 @@ final class WriteTool: AgentTool {
             throw ToolError(message: "Missing required parameter: content")
         }
 
-        let absolutePath = FileSystemToolHelpers.resolvePath(filePath, workingDirectory: workingDirectory)
+        let absolutePath = try FileSystemToolHelpers.resolvePath(filePath, workingDirectory: workingDirectory)
         logger.info("Writing file: \(absolutePath, privacy: .public), contentBytes: \(content.utf8.count)")
 
         let fileURL = URL(fileURLWithPath: absolutePath)

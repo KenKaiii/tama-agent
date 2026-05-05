@@ -23,7 +23,7 @@ struct ScreenshotToolTests {
     /// A vision-capable model (Kimi K2.5) \u2014 lets tests skip the vision guard
     /// and reach the permission/display branches.
     private func visionModel() -> ModelInfo {
-        ModelRegistry.model(withId: "kimi-k2.5")!
+        ModelRegistry.model(withId: "kimi-k2.6")!
     }
 
     /// A non-vision model (MiMo-V2-Pro) used to exercise the new guard.

@@ -75,6 +75,30 @@ struct ScheduledJob: Codable, Identifiable {
     }
 }
 
+/// Closure that actually runs the agent for a scheduled routine.
+/// Returns the assistant’s final text. Tests inject a stub; production uses
+/// `defaultRoutineRunner` which drives `AgentLoop`.
+typealias RoutineRunner = @MainActor (ScheduledJob) async throws -> String
+
+/// Production implementation of `RoutineRunner` — invokes `AgentLoop`.
+@MainActor
+func defaultRoutineRunner(_ job: ScheduledJob) async throws -> String {
+    let agentLoop = AgentLoop()
+    let messages: [[String: Any]] = [
+        ["role": "user", "content": job.prompt],
+    ]
+    nonisolated(unsafe) var collectedText = ""
+    _ = try await agentLoop.run(
+        messages: messages,
+        systemPrompt: "You are a helpful assistant running a scheduled routine. Be concise."
+    ) { event in
+        if case let .turnComplete(text) = event {
+            collectedText = text
+        }
+    }
+    return collectedText
+}
+
 /// Manages scheduled jobs: persistence, polling, and execution.
 @MainActor
 final class ScheduleStore {
@@ -83,12 +107,63 @@ final class ScheduleStore {
     private(set) var jobs: [ScheduledJob] = []
     private var pollTimer: Timer?
 
-    /// IDs of routines currently executing (for shimmer effect)
+    /// IDs of routines currently executing (for shimmer effect *and* re-entrancy guard).
+    /// A routine whose ID is in this set will not be re-fired by `checkDueJobs`
+    /// even if its `nextRunAt` has elapsed — prevents duplicate runs of
+    /// long-running routines that exceed the polling interval.
     private(set) var activeRoutineIDs: Set<UUID> = []
 
-    private init() {
-        loadFromDisk()
+    /// Pluggable routine runner. Production uses `defaultRoutineRunner`; tests
+    /// inject a stub via `makeForTesting(runner:)`.
+    private let routineRunner: RoutineRunner
+
+    /// When `false`, `executeRoutine` skips disk persistence, browser/session/
+    /// notification side effects, and only runs the injected `routineRunner`
+    /// while maintaining `activeRoutineIDs` and `runCount`. Used by unit tests.
+    private let runsSideEffects: Bool
+
+    private init(
+        runner: @escaping RoutineRunner = defaultRoutineRunner,
+        runsSideEffects: Bool = true,
+        loadFromDisk shouldLoadFromDisk: Bool = true
+    ) {
+        routineRunner = runner
+        self.runsSideEffects = runsSideEffects
+        if shouldLoadFromDisk {
+            loadFromDisk()
+        }
     }
+
+    /// Creates a hermetic store for unit tests: no disk I/O, no browser/session/
+    /// notification side effects, and a swappable routine runner.
+    static func makeForTesting(runner: @escaping RoutineRunner) -> ScheduleStore {
+        ScheduleStore(runner: runner, runsSideEffects: false, loadFromDisk: false)
+    }
+
+    // swiftlint:disable identifier_name
+    /// Test-only: append a fully-formed job without touching disk.
+    func _appendJobForTesting(_ job: ScheduledJob) {
+        precondition(!runsSideEffects, "_appendJobForTesting may only be used on a testing store")
+        jobs.append(job)
+    }
+
+    /// Test-only: force a job's `nextRunAt` so the next `checkDueJobs` will
+    /// consider it due. Returns true if the job was found.
+    @discardableResult
+    func _forceDueForTesting(id: UUID) -> Bool {
+        precondition(!runsSideEffects, "_forceDueForTesting may only be used on a testing store")
+        guard let i = jobs.firstIndex(where: { $0.id == id }) else { return false }
+        jobs[i].nextRunAt = Date(timeIntervalSinceNow: -1)
+        return true
+    }
+
+    /// Test-only: insert into the active set to simulate an in-flight routine.
+    func _markActiveForTesting(_ id: UUID) {
+        precondition(!runsSideEffects, "_markActiveForTesting may only be used on a testing store")
+        activeRoutineIDs.insert(id)
+    }
+
+    // swiftlint:enable identifier_name
 
     // MARK: - Public API
 
@@ -180,7 +255,9 @@ final class ScheduleStore {
 
     // MARK: - Polling
 
-    private func checkDueJobs() {
+    /// Internal entry point used by both the timer and tests.
+    /// Marked `internal` so the test target can drive the polling loop directly.
+    func checkDueJobs() {
         let now = Date()
         var modified = false
 
@@ -190,6 +267,15 @@ final class ScheduleStore {
             }
 
             let job = jobs[i]
+
+            // Skip routines that are still running from a previous tick.
+            // Long-running routines (>30s) would otherwise be fired again on
+            // every poll, double-charging API calls and re-running side effects.
+            if job.jobType == .routine, activeRoutineIDs.contains(job.id) {
+                logger.info("Skipping '\(job.name)' — previous run still in flight")
+                continue
+            }
+
             logger.info("Job '\(job.name)' is due — executing")
 
             switch job.jobType {
@@ -272,36 +358,40 @@ final class ScheduleStore {
     // MARK: - Routine Execution
 
     func executeRoutine(_ job: ScheduledJob) {
-        Task { @MainActor in
-            logger.info("Running routine '\(job.name)' with prompt: \(job.prompt.prefix(100))")
-
-            // Mark as active for shimmer effect
-            activeRoutineIDs.insert(job.id)
+        // Mark as active *before* spawning the Task so a poll that fires while
+        // the Task is still scheduling will see the in-flight ID and skip.
+        // The 30s polling tick can otherwise race the Task hop and re-fire.
+        activeRoutineIDs.insert(job.id)
+        if runsSideEffects {
             NotchActivityIndicator.addProcess(id: job.id.uuidString, label: "Routine: \(job.name)")
+        }
 
-            // Increment run count
-            if let index = jobs.firstIndex(where: { $0.id == job.id }) {
-                jobs[index].runCount += 1
+        // Increment run count synchronously so tests can observe the increment
+        // without awaiting the routine’s async work to finish.
+        if let index = jobs.firstIndex(where: { $0.id == job.id }) {
+            jobs[index].runCount += 1
+            if runsSideEffects {
                 saveToDisk()
             }
+        }
 
-            let agentLoop = AgentLoop()
-            let messages: [[String: Any]] = [
-                ["role": "user", "content": job.prompt],
-            ]
-
-            nonisolated(unsafe) var collectedText = ""
-            var resultText: String
-            do {
-                _ = try await agentLoop.run(
-                    messages: messages,
-                    systemPrompt: "You are a helpful assistant running a scheduled routine. Be concise."
-                ) { event in
-                    if case let .turnComplete(text) = event {
-                        collectedText = text
-                    }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // `defer` runs on every exit path — success, thrown error, and
+            // `AgentInterruptedError` alike — so the in-flight guard can never
+            // leak.
+            defer {
+                activeRoutineIDs.remove(job.id)
+                if runsSideEffects {
+                    NotchActivityIndicator.removeProcess(id: job.id.uuidString)
                 }
-                resultText = collectedText
+            }
+
+            logger.info("Running routine '\(job.name)' with prompt: \(job.prompt.prefix(100))")
+
+            let resultText: String
+            do {
+                resultText = try await routineRunner(job)
             } catch {
                 logger
                     .error(
@@ -310,12 +400,10 @@ final class ScheduleStore {
                 resultText = "Routine failed: \(error.localizedDescription)"
             }
 
+            guard runsSideEffects else { return }
+
             // Clean up any browser processes launched during the routine.
             BrowserManager.shared.disconnect()
-
-            // Mark as inactive
-            activeRoutineIDs.remove(job.id)
-            NotchActivityIndicator.removeProcess(id: job.id.uuidString)
 
             // Persist as an individual routine session
             let userMsg = ChatMessage(

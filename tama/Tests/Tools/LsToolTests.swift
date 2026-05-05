@@ -103,7 +103,7 @@ struct LsToolTests {
     @Test("non-existent directory throws")
     func nonExistentDirectoryThrows() async throws {
         do {
-            _ = try await tool.execute(args: ["path": "/nonexistent/path/\(UUID().uuidString)"])
+            _ = try await tool.execute(args: ["path": "nonexistent-\(UUID().uuidString)"])
             Issue.record("Expected error for non-existent directory")
         } catch {
             #expect(error.localizedDescription.contains("not found"))
