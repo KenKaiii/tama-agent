@@ -14,7 +14,7 @@ settings:
 packages:
   RiveRuntime:
     url: https://github.com/rive-app/rive-ios
-    from: "6.20.0"
+    from: "6.20.3"
   Highlightr:
     url: https://github.com/raspu/Highlightr
     from: "2.3.0"

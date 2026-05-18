@@ -1391,7 +1391,7 @@
 			repositoryURL = "https://github.com/rive-app/rive-ios";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 6.20.0;
+				minimumVersion = 6.20.3;
 			};
 		};
 		0E0E88F5CF5BCD6A328E8CF6 /* XCRemoteSwiftPackageReference "kokoro-ios" */ = {
