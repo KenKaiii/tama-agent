@@ -12,12 +12,15 @@
   <a href="https://github.com/KenKaiii/tama-agent/releases/latest"><img src="https://img.shields.io/github/v/release/KenKaiii/tama-agent?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
   <a href="https://youtube.com/@kenkaidoesai"><img src="https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
-  <a href="https://skool.com/kenkai"><img src="https://img.shields.io/badge/Skool-Community-7C3AED?style=for-the-badge" alt="Skool"></a>
+  <a href="https://www.skool.com/raid"><img src="https://img.shields.io/badge/Skool-Free%20community-7C3AED?style=for-the-badge" alt="Free Skool community"></a>
 </p>
 
 **Tama Agent** is a macOS app that puts an AI assistant in your menu bar. Press ⌥ + Space and a floating panel pops up over whatever you're doing. Ask it questions, tell it to do things on your computer, talk to it with your voice, or set up automations that run on a schedule. Choose from multiple AI models — GPT-5.5, Codex, Kimi K2.6, MiniMax M2.7, MiMo-V2-Pro, and more.
 
 No dock icon. No browser tab. Just a lightweight assistant that's always one hotkey away.
+
+> [!TIP]
+> **Want to build your own apps with AI?** A free 7-day build challenge and 20+ step-by-step projects are in my free community: **[skool.com/raid](https://www.skool.com/raid)**
 
 ---
 
@@ -116,7 +119,7 @@ Stack: Swift 6, macOS 15+, AppKit + SwiftUI
 ## 👥 Community
 
 - [YouTube @kenkaidoesai](https://youtube.com/@kenkaidoesai) — tutorials and demos
-- [Skool community](https://skool.com/kenkai) — come hang out
+- [Free Skool community](https://www.skool.com/raid): a 7-day build challenge and 20+ step-by-step projects
 
 ---
 
