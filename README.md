@@ -13,6 +13,8 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge" alt="MIT License"></a>
   <a href="https://youtube.com/@kenkaidoesai"><img src="https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
   <a href="https://www.skool.com/raid"><img src="https://img.shields.io/badge/Skool-Free%20community-7C3AED?style=for-the-badge" alt="Free Skool community"></a>
+  <a href="https://www.skool.com/kenkai"><img src="https://img.shields.io/badge/Skool-Raid%2B-7C3AED?style=for-the-badge" alt="Raid+ on Skool"></a>
+  <a href="https://www.kenkais.com"><img src="https://img.shields.io/badge/Website-kenkais.com-7C3AED?style=for-the-badge" alt="kenkais.com"></a>
 </p>
 
 **Tama Agent** is a macOS app that puts an AI assistant in your menu bar. Press ⌥ + Space and a floating panel pops up over whatever you're doing. Ask it questions, tell it to do things on your computer, talk to it with your voice, or set up automations that run on a schedule. Choose from multiple AI models — GPT-5.5, Codex, Kimi K2.6, MiniMax M2.7, MiMo-V2-Pro, and more.
@@ -20,7 +22,10 @@
 No dock icon. No browser tab. Just a lightweight assistant that's always one hotkey away.
 
 > [!TIP]
-> **Want to build your own apps with AI?** A free 7-day build challenge and 20+ step-by-step projects are in my free community: **[skool.com/raid](https://www.skool.com/raid)**
+> **Want to build your own apps with AI?**
+> - **Free community:** setup guides, a 7-day build challenge and 20+ projects: [skool.com/raid](https://www.skool.com/raid)
+> - **Raid+:** make money with AI, a sellable app in 30 days, live every Thursday: [skool.com/kenkai](https://www.skool.com/kenkai)
+> - **Want it built for you?** [work.kenkais.com](https://work.kenkais.com/)
 
 ---
 
@@ -120,6 +125,8 @@ Stack: Swift 6, macOS 15+, AppKit + SwiftUI
 
 - [YouTube @kenkaidoesai](https://youtube.com/@kenkaidoesai) — tutorials and demos
 - [Free Skool community](https://www.skool.com/raid): a 7-day build challenge and 20+ step-by-step projects
+- [Raid+](https://www.skool.com/kenkai): make money with AI, a sellable app in 30 days, live every Thursday
+- [work.kenkais.com](https://work.kenkais.com/): want it built for you?
 
 ---
 
